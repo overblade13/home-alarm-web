@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Shield, ShieldAlert, ShieldOff, Activity, DoorOpen, AlertTriangle, BellOff, Bell } from 'lucide-react';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
@@ -11,6 +11,10 @@ export default function Home() {
   const [isAlarm, setIsAlarm] = useState(false);
   const [events, setEvents] = useState<any[]>([]);
 
+  // Состояния звука
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   // Загрузка данных при открытии сайта
   useEffect(() => {
     // Восстанавливаем статус
@@ -20,13 +24,27 @@ export default function Home() {
       setIsArmed(status.isArmed);
       setIsAlarm(status.isAlarm);
     }
-    
+
     // Восстанавливаем историю
     const savedEvents = localStorage.getItem('alarm_history');
     if (savedEvents) {
       setEvents(JSON.parse(savedEvents));
     }
   }, []);
+
+  // Включаем/выключаем сирену при изменении статуса тревоги
+  useEffect(() => {
+    if (!audioRef.current) return;
+
+    if (isAlarm && soundEnabled) {
+      // Если тревога И звук включён — играем
+      audioRef.current.play().catch(err => console.log('Audio play error:', err));
+    } else {
+      // Если тревоги нет — пауза и перемотка в начало
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  }, [isAlarm, soundEnabled]);
 
   // Функция сохранения в память браузера
   const saveToStorage = (status: any, history: any) => {
@@ -38,14 +56,14 @@ export default function Home() {
   const handleArm = () => {
     setIsArmed(true);
     setIsAlarm(false);
-    
+
     const newEvent = {
       id: Date.now(),
       type: 'ARM',
       text: 'Система поставлена на охрану',
       time: new Date(),
     };
-    
+
     const newHistory = [newEvent, ...events];
     setEvents(newHistory);
     saveToStorage({ isArmed: true, isAlarm: false }, newHistory);
@@ -55,14 +73,14 @@ export default function Home() {
   const handleDisarm = () => {
     setIsArmed(false);
     setIsAlarm(false);
-    
+
     const newEvent = {
       id: Date.now(),
       type: 'DISARM',
       text: isAlarm ? 'Тревога сброшена' : 'Система снята с охраны',
       time: new Date(),
     };
-    
+
     const newHistory = [newEvent, ...events];
     setEvents(newHistory);
     saveToStorage({ isArmed: false, isAlarm: false }, newHistory);
@@ -83,19 +101,27 @@ export default function Home() {
   // Вызов тревоги
   const triggerAlarm = (sensorType: string) => {
     setIsAlarm(true);
-    
+
     const sensorName = sensorType === 'MOTION' ? 'Датчик движения' : 'Датчик двери';
-    
+
     const newEvent = {
       id: Date.now(),
       type: 'ALARM',
       text: `⚠️ ТРЕВОГА: ${sensorName}`,
       time: new Date(),
     };
-    
+
     const newHistory = [newEvent, ...events];
     setEvents(newHistory);
     saveToStorage({ isArmed: true, isAlarm: true }, newHistory);
+  };
+
+  // Включить звук (по клику пользователя)
+  const enableSound = () => {
+    setSoundEnabled(true);
+    if (audioRef.current) {
+      audioRef.current.volume = 0.5; // Громкость 50%
+    }
   };
 
   // Определяем цвет главного блока
@@ -115,16 +141,42 @@ export default function Home() {
   const statusInfo = getStatusInfo();
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8 font-sans">
+    <div
+      className="min-h-screen bg-gray-900 text-white p-4 md:p-8 font-sans"
+      onClick={enableSound} // Включаем звук по первому клику
+    >
       <div className="max-w-3xl mx-auto space-y-6">
-        
+
+        {/* Аудио элемент (скрытый) */}
+        <audio
+          ref={audioRef}
+          src="/siren.mp3"
+          loop
+          preload="auto"
+        />
+
         {/* Заголовок */}
         <h1 className="text-3xl font-bold text-center mb-8">🏠 Умная сигнализация</h1>
+
+        {/* Подсказка про звук */}
+        {!soundEnabled && (
+          <div className="bg-blue-900/50 border border-blue-500 rounded-lg p-3 text-center text-blue-300 animate-pulse">
+            🔊 <strong>Нажмите в любом месте экрана</strong>, чтобы включить звук сирены
+          </div>
+        )}
 
         {/* Главный статус */}
         <div className={`flex flex-col items-center justify-center p-8 rounded-2xl border-2 shadow-2xl transition-all duration-500 ${getMainColor()}`}>
           <div className="mb-4 animate-pulse">{statusInfo.icon}</div>
           <h2 className="text-4xl font-black tracking-wider">{statusInfo.text}</h2>
+
+          {/* Индикатор звука */}
+          {isAlarm && soundEnabled && (
+            <div className="mt-4 flex items-center gap-2 text-white animate-bounce">
+              <Bell size={24} />
+              <span className="font-bold">СИРЕНА АКТИВНА</span>
+            </div>
+          )}
         </div>
 
         {/* Кнопки управления */}
@@ -132,24 +184,22 @@ export default function Home() {
           <button
             onClick={handleArm}
             disabled={isArmed || isAlarm}
-            className={`p-4 rounded-xl font-bold text-lg transition-all ${
-              isArmed || isAlarm 
-                ? 'bg-gray-700 text-gray-500 cursor-not-allowed' 
+            className={`p-4 rounded-xl font-bold text-lg transition-all ${isArmed || isAlarm
+                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                 : 'bg-blue-600 hover:bg-blue-500 hover:scale-105 active:scale-95'
-            }`}
+              }`}
           >
             🔒 НА ОХРАНУ
           </button>
 
           <button
             onClick={handleDisarm}
-            className={`p-4 rounded-xl font-bold text-lg transition-all ${
-              !isArmed && !isAlarm 
-                ? 'bg-gray-700 text-gray-500 cursor-not-allowed' 
+            className={`p-4 rounded-xl font-bold text-lg transition-all ${!isArmed && !isAlarm
+                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                 : 'bg-orange-600 hover:bg-orange-500 hover:scale-105 active:scale-95'
-            }`}
+              }`}
           >
-            {isAlarm ? ' СБРОС' : '🔓 СНЯТЬ'}
+            {isAlarm ? '🔕 СБРОС' : '🔓 СНЯТЬ'}
           </button>
         </div>
 
@@ -162,14 +212,14 @@ export default function Home() {
               disabled={!isArmed}
               className="flex-1 bg-purple-700 hover:bg-purple-600 disabled:bg-gray-700 disabled:text-gray-500 py-3 rounded-lg font-medium transition-all"
             >
-              <Activity className="inline mr-2" size={20}/> Движение
+              <Activity className="inline mr-2" size={20} /> Движение
             </button>
             <button
               onClick={triggerDoor}
               disabled={!isArmed}
               className="flex-1 bg-cyan-700 hover:bg-cyan-600 disabled:bg-gray-700 disabled:text-gray-500 py-3 rounded-lg font-medium transition-all"
             >
-              <DoorOpen className="inline mr-2" size={20}/> Дверь
+              <DoorOpen className="inline mr-2" size={20} /> Дверь
             </button>
           </div>
         </div>
@@ -178,10 +228,10 @@ export default function Home() {
         <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
           <div className="p-4 border-b border-gray-700 bg-gray-850">
             <h3 className="font-bold flex items-center gap-2">
-              <AlertTriangle size={18} className="text-yellow-500"/> История событий
+              <AlertTriangle size={18} className="text-yellow-500" /> История событий
             </h3>
           </div>
-          
+
           <div className="max-h-80 overflow-y-auto">
             {events.length === 0 ? (
               <div className="p-8 text-center text-gray-500">История пуста</div>
